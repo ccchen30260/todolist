@@ -332,15 +332,9 @@
         }
 
         @keyframes popCheck {
-            0% {
-                transform: scale(0.8);
-            }
-            50% {
-                transform: scale(1.2);
-            }
-            100% {
-                transform: scale(1);
-            }
+            0% { transform: scale(0.8); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
         }
 
         .task-info {
@@ -478,12 +472,8 @@
             animation: fadeIn 0.25s ease;
         }
         @keyframes fadeIn {
-            from {
-                opacity: 0;
-            }
-            to {
-                opacity: 1;
-            }
+            from { opacity: 0; }
+            to { opacity: 1; }
         }
         .modal {
             background: var(--card-bg);
@@ -496,14 +486,8 @@
             border: 1px solid var(--border);
         }
         @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px) scale(0.95);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0) scale(1);
-            }
+            from { opacity: 0; transform: translateY(30px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
         }
         .modal h3 {
             font-size: 1.3rem;
@@ -621,9 +605,7 @@
             background: #f1f1f1;
             color: var(--text-secondary);
         }
-        .btn-cancel:hover {
-            background: #e5e5e5;
-        }
+        .btn-cancel:hover { background: #e5e5e5; }
         .btn-save {
             background: linear-gradient(135deg, var(--primary), var(--primary-light));
             color: #fff;
@@ -632,9 +614,7 @@
             opacity: 0.9;
             transform: translateY(-1px);
         }
-        .btn-save:active {
-            transform: translateY(0);
-        }
+        .btn-save:active { transform: translateY(0); }
 
         /* 刪除確認彈窗 */
         .confirm-text {
@@ -651,13 +631,8 @@
             margin-bottom: 20px;
             word-break: break-word;
         }
-        .btn-danger {
-            background: #ef4444;
-            color: #fff;
-        }
-        .btn-danger:hover {
-            background: #dc2626;
-        }
+        .btn-danger { background: #ef4444; color: #fff; }
+        .btn-danger:hover { background: #dc2626; }
 
         /* Toast 通知 */
         .toast {
@@ -676,17 +651,9 @@
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
             pointer-events: none;
         }
-        .toast.show {
-            transform: translateX(-50%) translateY(0);
-        }
-        .toast.success {
-            background: #16a34a;
-            color: #fff;
-        }
-        .toast.error {
-            background: #dc2626;
-            color: #fff;
-        }
+        .toast.show { transform: translateX(-50%) translateY(0); }
+        .toast.success { background: #16a34a; color: #fff; }
+        .toast.error { background: #dc2626; color: #fff; }
 
         /* Loading spinner */
         .loading-spinner {
@@ -699,64 +666,34 @@
             animation: spin 0.7s linear infinite;
         }
         @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
+            to { transform: rotate(360deg); }
         }
 
         /* 響應式 */
         @media (max-width: 480px) {
-            .container {
-                padding: 8px 10px 90px;
-            }
-            .header h1 {
-                font-size: 1.4rem;
-            }
+            .container { padding: 8px 10px 90px; }
+            .header h1 { font-size: 1.4rem; }
             .shift-btn {
                 padding: 10px 14px;
                 font-size: 0.9rem;
                 border-radius: 12px;
             }
-            .progress-card {
-                padding: 14px 16px;
-                border-radius: 16px;
-            }
-            .task-item {
-                padding: 12px 14px;
-                gap: 10px;
-            }
-            .task-list-header {
-                padding: 12px 14px;
-            }
-            .task-name {
-                font-size: 0.9rem;
-            }
+            .progress-card { padding: 14px 16px; border-radius: 16px; }
+            .task-item { padding: 12px 14px; gap: 10px; }
+            .task-list-header { padding: 12px 14px; }
+            .task-name { font-size: 0.9rem; }
             .add-task-btn {
                 padding: 14px 24px;
                 font-size: 0.95rem;
                 bottom: 16px;
             }
-            .modal {
-                padding: 20px 16px;
-                border-radius: 18px;
-            }
-            .btn-icon {
-                width: 30px;
-                height: 30px;
-                font-size: 0.85rem;
-            }
+            .modal { padding: 20px 16px; border-radius: 18px; }
+            .btn-icon { width: 30px; height: 30px; font-size: 0.85rem; }
         }
         @media (max-width: 360px) {
-            .shift-btn {
-                font-size: 0.8rem;
-                padding: 8px 10px;
-            }
-            .task-item {
-                flex-wrap: wrap;
-            }
-            .task-actions {
-                margin-left: auto;
-            }
+            .shift-btn { font-size: 0.8rem; padding: 8px 10px; }
+            .task-item { flex-wrap: wrap; }
+            .task-actions { margin-left: auto; }
         }
     </style>
 </head>
@@ -861,7 +798,7 @@
         // ============================================================
         // ⚙️ 設定：請將下方 GAS_URL 替換為你的 Google Apps Script Web App URL
         // ============================================================
-        const GAS_URL = 'https://script.google.com/macros/s/AKfycbyhktX-6GwkQbWEyBG_sKdObysiGP0aROqFCJ-ushSZ3nHgXPIB5y10o3rc1mMM8hnT3Q/exec'; // ← 請替換成你的 GAS 部署 URL
+        const GAS_URL = 'https://script.google.com/macros/s/AKfycbw_b47oGjyGm8fBUUMwzwgaKP8kUtiHVT0_X3IOG-UiDSQVAqAUGvFNPRh4xrZXHgkM1g/exec'; 
 
         // ============================================================
         // 全域狀態
@@ -1005,6 +942,7 @@
                 return a.name.localeCompare(b.name, 'zh-TW');
             });
 
+            // ⚠️ 關鍵修正：將 task.id 用單引號 ('${task.id}') 包起來，解決字串變數報錯問題
             list.innerHTML = sortedTasks.map(task => {
                 const completed = dailyStatus[task.id] || false;
                 const shiftTag = getShiftTag(task.shift);
@@ -1015,7 +953,7 @@
                         <input type="checkbox" 
                                class="task-checkbox" 
                                ${completed ? 'checked' : ''} 
-                               onchange="toggleTask(${task.id}, this.checked)"
+                               onchange="toggleTask('${task.id}', this.checked)" 
                                aria-label="完成 ${task.name}">
                         <div class="task-info">
                             <div class="task-name-row">
@@ -1025,8 +963,8 @@
                             </div>
                         </div>
                         <div class="task-actions">
-                            <button class="btn-icon edit-btn" onclick="openEditModal(${task.id})" title="編輯任務">✏️</button>
-                            <button class="btn-icon delete-btn" onclick="openDeleteModal(${task.id})" title="刪除任務">🗑️</button>
+                            <button class="btn-icon edit-btn" onclick="openEditModal('${task.id}')" title="編輯任務">✏️</button>
+                            <button class="btn-icon delete-btn" onclick="openDeleteModal('${task.id}')" title="刪除任務">🗑️</button>
                         </div>
                     </li>
                 `;
@@ -1038,14 +976,10 @@
 
         function getShiftTag(shift) {
             switch (shift) {
-                case 'day':
-                    return '☀️ 日班';
-                case 'night':
-                    return '🌙 夜班';
-                case 'both':
-                    return '🔀 兩者';
-                default:
-                    return shift;
+                case 'day': return '☀️ 日班';
+                case 'night': return '🌙 夜班';
+                case 'both': return '🔀 兩者';
+                default: return shift;
             }
         }
 
