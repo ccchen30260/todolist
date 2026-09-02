@@ -246,7 +246,7 @@
     </div>
 
     <script>
-        const GAS_URL = 'https://script.google.com/macros/s/AKfycby7mzlJZEQrz_0yTL0udUFCmX2Chy1BBLbQ6dT_cw3roJn_GbEapQDQ4M_6KReFlKpgzg/exec'; // 請替換為您的 GAS Web App URL
+        const GAS_URL = 'https://script.google.com/macros/s/AKfycbxvaIk6_M1BGPWPEESWPWWK-9eGqhCkf_eDfczwnVbB0DFVjemMuWtZzIHfFID7K9Y8Wg/exec'; // 請替換為您的 GAS Web App URL
 
         let currentShift = 'day';
         let currentView = 'day';
@@ -278,23 +278,23 @@
             return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
         }
 
+        function formatDate(date) {
+            return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+        }
+
         function getDateRangeForView(view) {
             const today = new Date();
-            const start = new Date(today);
-            const end = new Date(today);
             if (view === 'day') {
                 return { start: getTodayString(), end: getTodayString() };
             } else if (view === 'week') {
-                end.setDate(today.getDate() + 7); // 未來7天內
+                const end = new Date(today);
+                end.setDate(today.getDate() + 7);
                 return { start: getTodayString(), end: formatDate(end) };
             } else if (view === 'month') {
-                end.setDate(today.getDate() + 30); // 未來30天內
+                const end = new Date(today);
+                end.setDate(today.getDate() + 30);
                 return { start: getTodayString(), end: formatDate(end) };
             }
-        }
-
-        function formatDate(date) {
-            return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
         }
 
         function switchShift(shift) {
@@ -409,7 +409,6 @@
 
         function updateProgressAndStats() {
             const total = tasks.length;
-            // 完成定義：今日是否完成（在日視圖中直接使用 dailyStatus；在週/月視圖中，也使用今日完成狀態）
             const done = tasks.filter(t => dailyStatus[t.id] || false).length;
             const percent = total > 0 ? Math.round((done / total) * 100) : 0;
             document.getElementById('progressPercent').textContent = `${percent}%`;
@@ -555,9 +554,20 @@
             isDailyForModal = false;
             document.getElementById('modalTitle').textContent = '新增任務';
             document.getElementById('taskNameInput').value = '';
-            document.getElementById('startDateInput').value = '';
-            document.getElementById('dueDateInput').value = '';
             document.getElementById('dailyCheckbox').checked = false;
+            // 根據當前視圖自動填充日期
+            const today = new Date();
+            const startStr = formatDate(today);
+            let dueStr = startStr;
+            if (currentView === 'week') {
+                const due = new Date(today); due.setDate(today.getDate() + 7);
+                dueStr = formatDate(due);
+            } else if (currentView === 'month') {
+                const due = new Date(today); due.setDate(today.getDate() + 30);
+                dueStr = formatDate(due);
+            }
+            document.getElementById('startDateInput').value = startStr;
+            document.getElementById('dueDateInput').value = dueStr;
             updateShiftSelectorUI();
             updateDateFieldsVisibility();
             document.getElementById('taskModal').style.display = 'flex';
