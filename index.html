@@ -206,9 +206,18 @@
                     <div class="shift-option" data-value="both" onclick="selectShift(this)">兩者</div>
                 </div>
             </div>
-            <div class="form-group">
-                <label>完成日期（選填，用於週/月任務）</label>
-                <input type="date" id="dueDateInput">
+            <div class="form-group" id="dateFields">
+                <div style="display:flex; gap:10px;">
+                    <div style="flex:1;">
+                        <label>開始日期</label>
+                        <input type="date" id="startDateInput">
+                    </div>
+                    <div style="flex:1;">
+                        <label>完成日期</label>
+                        <input type="date" id="dueDateInput">
+                    </div>
+                </div>
+                <div style="margin-top:6px; font-size:12px; color:var(--ios-gray);">僅週/月任務需要設定日期</div>
             </div>
             <div class="form-group">
                 <label class="daily-toggle" onclick="toggleDaily()">
@@ -237,7 +246,7 @@
     </div>
 
     <script>
-        const GAS_URL = 'https://script.google.com/macros/s/AKfycbyNFAqEsIcWvdVzgUA9hoSZhTNNDP0CeXk1GiVh0VYHAIhm-GlnX9pPwsA2DSMzuEKllw/exec'; // 請替換為您的 GAS Web App URL
+        const GAS_URL = 'https://script.google.com/macros/s/AKfycby7mzlJZEQrz_0yTL0udUFCmX2Chy1BBLbQ6dT_cw3roJn_GbEapQDQ4M_6KReFlKpgzg/exec'; // 請替換為您的 GAS Web App URL
 
         let currentShift = 'day';
         let currentView = 'day';
@@ -269,6 +278,25 @@
             return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
         }
 
+        function getDateRangeForView(view) {
+            const today = new Date();
+            const start = new Date(today);
+            const end = new Date(today);
+            if (view === 'day') {
+                return { start: getTodayString(), end: getTodayString() };
+            } else if (view === 'week') {
+                end.setDate(today.getDate() + 7); // 未來7天內
+                return { start: getTodayString(), end: formatDate(end) };
+            } else if (view === 'month') {
+                end.setDate(today.getDate() + 30); // 未來30天內
+                return { start: getTodayString(), end: formatDate(end) };
+            }
+        }
+
+        function formatDate(date) {
+            return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+        }
+
         function switchShift(shift) {
             currentShift = shift;
             document.body.setAttribute('data-shift', shift);
@@ -292,8 +320,9 @@
                 return;
             }
             const today = getTodayString();
+            const range = getDateRangeForView(currentView);
             try {
-                const url = `${GAS_URL}?action=get_tasks&shift=${currentShift}&view=${currentView}&date=${today}`;
+                const url = `${GAS_URL}?action=get_tasks&shift=${currentShift}&view=${currentView}&date=${today}&start_date=${range.start}&end_date=${range.end}`;
                 const response = await fetch(url, { method: 'GET' });
                 if (!response.ok) throw new Error('HTTP ' + response.status);
                 const data = await response.json();
@@ -331,7 +360,11 @@
                 const badges = [];
                 badges.push(`<span class="badge">${getShiftLabel(task.shift)}</span>`);
                 if (task.is_daily) badges.push('<span class="badge daily">每日必做</span>');
-                if (task.due_date && !task.is_daily) badges.push(`<span class="badge">📅 ${task.due_date}</span>`);
+                if (task.start_date && task.due_date && !task.is_daily) {
+                    badges.push(`<span class="badge">📅 ${task.start_date} ~ ${task.due_date}</span>`);
+                } else if (task.due_date && !task.is_daily) {
+                    badges.push(`<span class="badge">📅 完成: ${task.due_date}</span>`);
+                }
                 return `
                     <li class="task-item ${completed ? 'completed-task' : ''}" 
                         draggable="true" 
@@ -376,17 +409,8 @@
 
         function updateProgressAndStats() {
             const total = tasks.length;
-            let done = 0;
-            if (currentView === 'day') {
-                done = tasks.filter(t => dailyStatus[t.id] || false).length;
-            } else {
-                // 週/月視圖：統計範圍內非每日任務的完成情況（任意一天完成即算完成）
-                const dates = Object.keys(dailyStatusByDate);
-                tasks.forEach(t => {
-                    const completed = dates.some(date => dailyStatusByDate[date][t.id]);
-                    if (completed) done++;
-                });
-            }
+            // 完成定義：今日是否完成（在日視圖中直接使用 dailyStatus；在週/月視圖中，也使用今日完成狀態）
+            const done = tasks.filter(t => dailyStatus[t.id] || false).length;
             const percent = total > 0 ? Math.round((done / total) * 100) : 0;
             document.getElementById('progressPercent').textContent = `${percent}%`;
             document.getElementById('progressPercent').className = 'progress-percent' + (percent === 100 && total > 0 ? ' complete' : '');
@@ -408,16 +432,11 @@
                 rangeStatsEl.style.display = 'none';
             } else {
                 rangeStatsEl.style.display = 'block';
-                rangeStatsEl.textContent = `${currentView === 'week' ? '本週' : '本月'}完成率：${percent}% (${done}/${total})`;
+                rangeStatsEl.textContent = `今日完成率：${percent}% (${done}/${total})`;
             }
         }
 
         async function toggleTask(taskId, completed) {
-            if (currentView !== 'day') {
-                // 週/月視圖不支持直接勾選，可提示或忽略
-                showToast('請在日視圖中勾選任務', 'error');
-                return;
-            }
             try {
                 const today = getTodayString();
                 const body = {
@@ -536,12 +555,15 @@
             isDailyForModal = false;
             document.getElementById('modalTitle').textContent = '新增任務';
             document.getElementById('taskNameInput').value = '';
+            document.getElementById('startDateInput').value = '';
             document.getElementById('dueDateInput').value = '';
             document.getElementById('dailyCheckbox').checked = false;
             updateShiftSelectorUI();
+            updateDateFieldsVisibility();
             document.getElementById('taskModal').style.display = 'flex';
             document.getElementById('taskNameInput').focus();
         }
+
         function openEditModal(taskId) {
             const task = tasks.find(t => t.id === taskId);
             if (!task) return;
@@ -550,36 +572,62 @@
             isDailyForModal = task.is_daily || false;
             document.getElementById('modalTitle').textContent = '編輯任務';
             document.getElementById('taskNameInput').value = task.name;
+            document.getElementById('startDateInput').value = task.start_date || '';
             document.getElementById('dueDateInput').value = task.due_date || '';
             document.getElementById('dailyCheckbox').checked = isDailyForModal;
             updateShiftSelectorUI();
+            updateDateFieldsVisibility();
             document.getElementById('taskModal').style.display = 'flex';
             document.getElementById('taskNameInput').focus();
         }
+
         function closeModal() {
             document.getElementById('taskModal').style.display = 'none';
             editingTaskId = null;
         }
+
         function selectShift(el) {
             document.querySelectorAll('.shift-option').forEach(opt => opt.classList.remove('selected'));
             el.classList.add('selected');
             selectedShiftForModal = el.dataset.value;
         }
+
         function updateShiftSelectorUI() {
             document.querySelectorAll('.shift-option').forEach(opt => {
                 opt.classList.toggle('selected', opt.dataset.value === selectedShiftForModal);
             });
         }
+
         function toggleDaily() {
             isDailyForModal = document.getElementById('dailyCheckbox').checked;
+            updateDateFieldsVisibility();
         }
+
+        function updateDateFieldsVisibility() {
+            const dateFields = document.getElementById('dateFields');
+            if (isDailyForModal) {
+                dateFields.style.opacity = '0.5';
+                dateFields.style.pointerEvents = 'none';
+                document.getElementById('startDateInput').value = '';
+                document.getElementById('dueDateInput').value = '';
+            } else {
+                dateFields.style.opacity = '1';
+                dateFields.style.pointerEvents = 'auto';
+            }
+        }
+
         async function saveTask() {
             const name = document.getElementById('taskNameInput').value.trim();
             if (!name) {
                 showToast('請輸入任務名稱', 'error');
                 return;
             }
+            const startDate = document.getElementById('startDateInput').value;
             const dueDate = document.getElementById('dueDateInput').value;
+            if (!isDailyForModal && (!startDate || !dueDate)) {
+                showToast('請設定開始日期和完成日期', 'error');
+                return;
+            }
             const saveBtn = document.getElementById('saveBtn');
             const originalText = saveBtn.textContent;
             saveBtn.textContent = '儲存中...';
@@ -591,7 +639,8 @@
                     name: name,
                     shift: selectedShiftForModal,
                     is_daily: isDailyForModal,
-                    due_date: dueDate
+                    start_date: isDailyForModal ? '' : startDate,
+                    due_date: isDailyForModal ? '' : dueDate
                 };
                 const response = await fetch(GAS_URL, {
                     method: 'POST',
