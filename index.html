@@ -246,7 +246,7 @@
     </div>
 
     <script>
-        const GAS_URL = 'https://script.google.com/macros/s/AKfycbxvaIk6_M1BGPWPEESWPWWK-9eGqhCkf_eDfczwnVbB0DFVjemMuWtZzIHfFID7K9Y8Wg/exec'; // 請替換為您的 GAS Web App URL
+        const GAS_URL = 'https://script.google.com/macros/s/AKfycbzBuZltCZJa-UX1g8VmUHA-3aNo7GBr5kBGD-eWhedlzYwS0p3xWEhbLOAxtbiVFxr8Hg/exec'; // ★★★ 請替換為您的 GAS Web App URL ★★★
 
         let currentShift = 'day';
         let currentView = 'day';
@@ -374,7 +374,7 @@
                         ondrop="onDrop(event, '${task.id}')"
                         ondragend="onDragEnd()">
                         <input type="checkbox" class="task-checkbox" ${completed ? 'checked' : ''} 
-                               onchange="toggleTask('${task.id}', this.checked)" aria-label="完成 ${task.name}">
+                               onchange="toggleTask('${task.id}', this.checked)" aria-label="完成 ${escapeHtml(task.name)}">
                         <div class="task-info">
                             <div class="task-name">${escapeHtml(task.name)}</div>
                             <div class="task-badges">${badges.join('')}</div>
@@ -418,20 +418,19 @@
             document.getElementById('totalCount').textContent = total;
 
             const label = document.getElementById('progressLabel');
+            const rangeStatsEl = document.getElementById('rangeStats');
+            
             if (currentView === 'day') {
                 label.textContent = total === 0 ? '今日無任務' : (percent === 100 ? '今日全部完成！' : '今日進度');
-            } else if (currentView === 'week') {
-                label.textContent = '本週進度';
-            } else {
-                label.textContent = '本月進度';
-            }
-
-            const rangeStatsEl = document.getElementById('rangeStats');
-            if (currentView === 'day') {
                 rangeStatsEl.style.display = 'none';
-            } else {
+            } else if (currentView === 'week') {
+                label.textContent = '本週區間任務進度';
                 rangeStatsEl.style.display = 'block';
-                rangeStatsEl.textContent = `今日完成率：${percent}% (${done}/${total})`;
+                rangeStatsEl.textContent = `（在此區間內勾選的今日狀態會被記錄）`;
+            } else {
+                label.textContent = '本月區間任務進度';
+                rangeStatsEl.style.display = 'block';
+                rangeStatsEl.textContent = `（在此區間內勾選的今日狀態會被記錄）`;
             }
         }
 
@@ -551,10 +550,14 @@
         function openAddModal() {
             editingTaskId = null;
             selectedShiftForModal = currentShift === 'day' ? 'day' : 'night';
-            isDailyForModal = false;
+            
+            // 週/月視圖預設不勾選每日，且自動填入對應的日期；日視圖預設勾選每日
+            isDailyForModal = (currentView === 'day'); 
+            
             document.getElementById('modalTitle').textContent = '新增任務';
             document.getElementById('taskNameInput').value = '';
-            document.getElementById('dailyCheckbox').checked = false;
+            document.getElementById('dailyCheckbox').checked = isDailyForModal;
+            
             // 根據當前視圖自動填充日期
             const today = new Date();
             const startStr = formatDate(today);
@@ -568,6 +571,7 @@
             }
             document.getElementById('startDateInput').value = startStr;
             document.getElementById('dueDateInput').value = dueStr;
+            
             updateShiftSelectorUI();
             updateDateFieldsVisibility();
             document.getElementById('taskModal').style.display = 'flex';
