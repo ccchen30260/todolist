@@ -47,6 +47,22 @@
         }
         .container { max-width: 500px; margin: 0 auto; padding: 0 16px; }
 
+        /* 全螢幕載入動畫 */
+        .loading-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.25);
+            backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 999; opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
+        }
+        .loading-overlay.show { opacity: 1; pointer-events: auto; }
+        .spinner {
+            width: 42px; height: 42px; border: 4px solid rgba(255,255,255,0.3);
+            border-top: 4px solid var(--ios-blue); border-radius: 50%;
+            animation: spin 0.8s linear infinite; margin-bottom: 12px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .loading-text { color: #fff; font-size: 15px; font-weight: 600; text-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+
         /* 導航 */
         .nav-bar { padding: 16px 0 8px; display: flex; justify-content: space-between; align-items: center; }
         .nav-bar h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; color: var(--ios-text); }
@@ -62,7 +78,6 @@
         .view-toggle { display: flex; gap: 8px; margin-bottom: 16px; }
         .view-btn { flex: 1; padding: 8px 0; text-align: center; font-size: 14px; font-weight: 600; background: var(--ios-card); border-radius: 8px; color: var(--ios-gray); cursor: pointer; box-shadow: var(--ios-shadow); transition: all 0.2s; user-select: none; }
         .view-btn.active { background: var(--ios-blue); color: #fff; box-shadow: 0 2px 8px rgba(0,122,255,0.3); }
-        [data-shift="night"] .view-btn.active { background: var(--ios-blue); color: #fff; }
 
         /* 進度卡片 */
         .progress-card { background: var(--ios-card); border-radius: var(--ios-radius); padding: 18px 20px; box-shadow: var(--ios-shadow); margin-bottom: 16px; transition: all var(--transition); }
@@ -104,7 +119,6 @@
         .badge.daily { background: #ffecec; color: var(--ios-red); }
         [data-shift="night"] .badge.daily { background: #3a2a2a; color: #ff6b6b; }
 
-        /* 路徑連結樣式 */
         .task-link { font-size: 13px; color: var(--ios-blue); margin-top: 6px; margin-bottom: 2px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; padding: 4px 8px; background: rgba(0, 122, 255, 0.1); border-radius: 6px; word-break: break-all; transition: opacity 0.2s; }
         .task-link:active { opacity: 0.7; }
         [data-shift="night"] .task-link { background: rgba(10, 132, 255, 0.15); color: #0a84ff; }
@@ -118,11 +132,9 @@
         .empty-state { text-align: center; padding: 40px 20px; color: var(--ios-gray); }
         .empty-state .icon { font-size: 40px; margin-bottom: 10px; }
 
-        /* 浮動按鈕 */
         .add-btn { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); width: 60px; height: 60px; border-radius: 50%; background: var(--ios-blue); border: none; color: #fff; font-size: 32px; cursor: pointer; box-shadow: 0 8px 20px rgba(0,122,255,0.4); transition: transform 0.2s; display: flex; align-items: center; justify-content: center; z-index: 100; -webkit-tap-highlight-color: transparent; }
         .add-btn:active { transform: translateX(-50%) scale(0.9); }
 
-        /* 彈窗 */
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; animation: fadeIn 0.2s; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .modal { background: var(--ios-card); border-radius: 16px; padding: 24px 20px; max-width: 400px; width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.2); animation: slideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
@@ -145,7 +157,6 @@
         .modal-btn.save { background: var(--ios-blue); color: #fff; }
         .modal-btn:active { opacity: 0.7; }
 
-        /* Toast */
         .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%) translateY(-100px); background: var(--ios-gray); color: #fff; padding: 10px 20px; border-radius: 20px; font-weight: 500; font-size: 14px; z-index: 300; transition: transform 0.4s; pointer-events: none; box-shadow: 0 8px 20px rgba(0,0,0,0.2); }
         .toast.show { transform: translateX(-50%) translateY(0); }
         .toast.success { background: var(--ios-green); }
@@ -153,6 +164,12 @@
     </style>
 </head>
 <body data-shift="day">
+    <!-- 載入中動畫遮罩 -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <div class="loading-text" id="loadingText">載入資料中...</div>
+    </div>
+
     <div id="toast" class="toast"></div>
     <div class="container">
         <div class="nav-bar">
@@ -213,8 +230,6 @@
                     <div class="shift-option" data-value="both" onclick="selectShift(this)">兩者</div>
                 </div>
             </div>
-            
-            <!-- 新增：指定時間區間 -->
             <div class="form-group">
                 <label>指定時間區間 (選填)</label>
                 <div class="time-range-group">
@@ -223,8 +238,6 @@
                     <input type="time" id="endTimeInput">
                 </div>
             </div>
-            
-            <!-- 新增：區網 / 本地路徑連結 -->
             <div class="form-group">
                 <label>區網 / 本地路徑連結 (選填)</label>
                 <input type="text" id="linkPathInput" placeholder="例: \\192.168.1.100\share 或 https://..." maxlength="300">
@@ -232,7 +245,6 @@
                     提示：若是本地/區網路徑，點擊將自動複製；若是網址將直接開啟。
                 </div>
             </div>
-
             <div class="form-group" id="dateFields">
                 <div style="display:flex; gap:10px;">
                     <div style="flex:1;">
@@ -246,7 +258,6 @@
                 </div>
                 <div style="margin-top:6px; font-size:12px; color:var(--ios-gray);">僅週/月任務需要設定日期</div>
             </div>
-            
             <div class="form-group">
                 <label class="daily-toggle" onclick="toggleDaily()">
                     <input type="checkbox" id="dailyCheckbox">
@@ -274,7 +285,7 @@
     </div>
 
     <script>
-        const GAS_URL = 'https://script.google.com/macros/s/AKfycbzSyziI07uoXX6jYleB2SKl5MG01xUlR0_CgD5KLHGOKA7LDXfgywA-sIbpu7ZysM3m3w/exec'; // ★★★ 請替換為您的 GAS Web App URL ★★★
+        const GAS_URL = 'https://script.google.com/macros/s/AKfycbwdrzLlKbkLCHaQjLu7C0IqWLtuH2X2UhjbwVY0g5_xPI3zSGJpnHG3xAsiVWYshr0HqA/exec'; // ★請替換為您的 GAS Web App URL★
 
         let currentShift = 'day';
         let currentView = 'day';
@@ -291,6 +302,15 @@
             updateDateDisplay();
             loadTasks();
         });
+
+        function showLoading(msg = '載入資料中...') {
+            document.getElementById('loadingText').textContent = msg;
+            document.getElementById('loadingOverlay').classList.add('show');
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').classList.remove('show');
+        }
 
         function updateDateDisplay() {
             const now = new Date();
@@ -326,6 +346,7 @@
         }
 
         function switchShift(shift) {
+            if (currentShift === shift) return;
             currentShift = shift;
             document.body.setAttribute('data-shift', shift);
             document.getElementById('btnDay').classList.toggle('active', shift === 'day');
@@ -335,6 +356,7 @@
         }
 
         function switchView(view) {
+            if (currentView === view) return;
             currentView = view;
             document.querySelectorAll('.view-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.view === view);
@@ -347,6 +369,7 @@
                 showToast('請先設定 GAS_URL', 'error');
                 return;
             }
+            showLoading('載入任務資料...');
             const today = getTodayString();
             const range = getDateRangeForView(currentView);
             try {
@@ -366,12 +389,12 @@
                 }
             } catch (error) {
                 console.error('載入失敗:', error);
-                tasks = [];
-                dailyStatus = {};
-                dailyStatusByDate = {};
+                tasks = []; dailyStatus = {}; dailyStatusByDate = {};
                 renderEmptyState('無法載入任務，請檢查 GAS 設定');
                 updateProgressAndStats();
                 showToast('載入失敗: ' + error.message, 'error');
+            } finally {
+                hideLoading();
             }
         }
 
@@ -388,11 +411,9 @@
                 const badges = [];
                 badges.push(`<span class="badge">${getShiftLabel(task.shift)}</span>`);
                 
-                // 時間區間 Badge 處理
                 if (task.time_range && task.time_range !== '|') {
                     const parts = task.time_range.split('|');
-                    const st = parts[0];
-                    const et = parts[1];
+                    const st = parts[0]; const et = parts[1];
                     let timeBadgeStr = '';
                     if (st && et) timeBadgeStr = `${st} ~ ${et}`;
                     else if (st) timeBadgeStr = `${st} 起`;
@@ -407,7 +428,6 @@
                     badges.push(`<span class="badge">📅 完成: ${task.due_date}</span>`);
                 }
 
-                // 路徑連結處理
                 let linkElement = '';
                 if (task.link_path) {
                     linkElement = `<div class="task-link" onclick="handlePathClick(this, event)" data-path="${escapeHtml(task.link_path)}">
@@ -440,18 +460,13 @@
             document.getElementById('taskCountBadge').textContent = tasks.length;
         }
 
-        // 處理路徑點擊 (複製或另開網頁)
         function handlePathClick(el, e) {
-            e.stopPropagation(); // 阻止事件冒泡以免觸發拖曳
+            e.stopPropagation();
             const path = el.getAttribute('data-path');
-            
-            // 判斷是否為網址 (http / https)
             if (path.toLowerCase().startsWith('http://') || path.toLowerCase().startsWith('https://')) {
                 window.open(path, '_blank');
                 return;
             }
-
-            // 複製到剪貼簿 (處理區網或本地路徑)
             if (navigator.clipboard && window.isSecureContext) {
                 navigator.clipboard.writeText(path).then(() => {
                     showToast('🔗 路徑已複製，請至資料夾貼上');
@@ -466,8 +481,7 @@
             textArea.value = text;
             textArea.style.top = "0"; textArea.style.left = "0"; textArea.style.position = "fixed";
             document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
+            textArea.focus(); textArea.select();
             try {
                 document.execCommand('copy');
                 showToast('🔗 路徑已複製，請至資料夾貼上');
@@ -523,6 +537,7 @@
         }
 
         async function toggleTask(taskId, completed) {
+            showLoading('更新狀態...');
             try {
                 const today = getTodayString();
                 const body = { action: 'toggle_task', task_id: taskId, date: today, shift: currentShift, completed: completed };
@@ -538,11 +553,14 @@
                 console.error('切換失敗:', error);
                 showToast('操作失敗: ' + error.message, 'error');
                 loadTasks();
+            } finally {
+                hideLoading();
             }
         }
 
         async function clearToday() {
             if (!confirm('確定要清除今日所有完成狀態嗎？')) return;
+            showLoading('清除完成狀態...');
             try {
                 const body = { action: 'clear_today', date: getTodayString(), shift: currentShift };
                 const response = await fetch(GAS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
@@ -551,10 +569,12 @@
                     showToast('已清除今日狀態');
                     loadTasks();
                 } else { throw new Error(data.message || '清除失敗'); }
-            } catch (error) { showToast('清除失敗: ' + error.message, 'error'); }
+            } catch (error) {
+                showToast('清除失敗: ' + error.message, 'error');
+                hideLoading();
+            }
         }
 
-        // 拖曳排序功能
         function onDragStart(e, taskId) { draggedTaskId = taskId; e.target.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', taskId); }
         function onDragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; const item = e.target.closest('.task-item'); if (item && item.dataset.taskId !== draggedTaskId) { item.classList.add('drag-over'); } }
         function onDrop(e, targetTaskId) {
@@ -616,7 +636,6 @@
             document.getElementById('modalTitle').textContent = '編輯任務';
             document.getElementById('taskNameInput').value = task.name;
             
-            // 解析時間區間
             if (task.time_range && task.time_range.includes('|')) {
                 const parts = task.time_range.split('|');
                 document.getElementById('startTimeInput').value = parts[0] || '';
@@ -661,12 +680,11 @@
 
             const startTime = document.getElementById('startTimeInput').value;
             const endTime = document.getElementById('endTimeInput').value;
-            const timeRange = `${startTime}|${endTime}`; // 後端儲存格式
+            const timeRange = `${startTime}|${endTime}`;
             const linkPath = document.getElementById('linkPathInput').value.trim();
 
-            const saveBtn = document.getElementById('saveBtn');
-            const originalText = saveBtn.textContent;
-            saveBtn.textContent = '儲存中...'; saveBtn.disabled = true;
+            showLoading('儲存任務中...');
+            closeModal();
             try {
                 const body = {
                     action: editingTaskId ? 'update_task' : 'add_task',
@@ -679,9 +697,12 @@
                 const response = await fetch(GAS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
                 const data = await response.json();
                 if (data.success) {
-                    closeModal(); showToast(editingTaskId ? '✅ 已更新' : '✅ 已新增'); loadTasks();
+                    showToast(editingTaskId ? '✅ 已更新' : '✅ 已新增'); loadTasks();
                 } else { throw new Error(data.message || '儲存失敗'); }
-            } catch (error) { showToast('儲存失敗: ' + error.message, 'error'); } finally { saveBtn.textContent = originalText; saveBtn.disabled = false; }
+            } catch (error) {
+                showToast('儲存失敗: ' + error.message, 'error');
+                hideLoading();
+            }
         }
 
         function openDeleteModal(taskId) {
@@ -695,15 +716,18 @@
         
         async function confirmDelete() {
             if (!deletingTaskId) return;
-            const btn = document.querySelector('#deleteModal .save');
-            btn.textContent = '刪除中...'; btn.disabled = true;
+            showLoading('刪除任務中...');
+            closeDeleteModal();
             try {
                 const body = { action: 'delete_task', task_id: deletingTaskId };
                 const response = await fetch(GAS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
                 const data = await response.json();
-                if (data.success) { closeDeleteModal(); showToast('🗑️ 已刪除'); loadTasks(); } 
+                if (data.success) { showToast('🗑️ 已刪除'); loadTasks(); } 
                 else { throw new Error(data.message || '刪除失敗'); }
-            } catch (error) { showToast('刪除失敗: ' + error.message, 'error'); } finally { btn.textContent = '刪除'; btn.disabled = false; }
+            } catch (error) {
+                showToast('刪除失敗: ' + error.message, 'error');
+                hideLoading();
+            }
         }
 
         function showToast(message, type = 'success') {
