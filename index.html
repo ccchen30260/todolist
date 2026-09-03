@@ -285,7 +285,7 @@
     </div>
 
     <script>
-        const GAS_URL = 'https://script.google.com/macros/s/AKfycbwdrzLlKbkLCHaQjLu7C0IqWLtuH2X2UhjbwVY0g5_xPI3zSGJpnHG3xAsiVWYshr0HqA/exec'; // ★請替換為您的 GAS Web App URL★
+        const GAS_URL = 'https://script.google.com/macros/s/AKfycbytBtJ509nU6fZz89bivzOoGlqQdPBkNT5igOMfRoVqJ0wx6tThyMtQCH60aexanWHibQ/exec'; // ★請替換為您的 GAS Web App URL★
 
         let currentShift = 'day';
         let currentView = 'day';
@@ -364,12 +364,35 @@
             loadTasks();
         }
 
+        // 修改後的 loadTasks 加入快取
         async function loadTasks() {
+            const cacheKey = `task_cache_${currentShift}_${currentView}`;
+            const cached = localStorage.getItem(cacheKey);
+            let hasCache = false;
+
+            if (cached) {
+                try {
+                    const data = JSON.parse(cached);
+                    if (data.tasks && data.dailyStatus) {
+                        tasks = data.tasks;
+                        dailyStatus = {};
+                        data.dailyStatus.forEach(item => { dailyStatus[item.task_id] = item.completed; });
+                        dailyStatusByDate = data.dailyStatusByDate || {};
+                        renderTaskList();
+                        updateProgressAndStats();
+                        hasCache = true;
+                    }
+                } catch (e) { /* 快取損壞則忽略 */ }
+            }
+
             if (!GAS_URL || GAS_URL === 'YOUR_GAS_WEB_APP_URL_HERE') {
                 showToast('請先設定 GAS_URL', 'error');
                 return;
             }
-            showLoading('載入任務資料...');
+
+            // 如果有快取，不顯示全螢幕 loading
+            if (!hasCache) showLoading('載入任務資料...');
+
             const today = getTodayString();
             const range = getDateRangeForView(currentView);
             try {
@@ -384,15 +407,25 @@
                     dailyStatusByDate = data.dailyStatusByDate || {};
                     renderTaskList();
                     updateProgressAndStats();
+                    // 儲存快取
+                    const cacheData = {
+                        tasks: tasks,
+                        dailyStatus: data.dailyStatus || [],
+                        dailyStatusByDate: dailyStatusByDate,
+                        timestamp: Date.now()
+                    };
+                    localStorage.setItem(cacheKey, JSON.stringify(cacheData));
                 } else {
                     throw new Error(data.message || '載入失敗');
                 }
             } catch (error) {
                 console.error('載入失敗:', error);
-                tasks = []; dailyStatus = {}; dailyStatusByDate = {};
-                renderEmptyState('無法載入任務，請檢查 GAS 設定');
-                updateProgressAndStats();
-                showToast('載入失敗: ' + error.message, 'error');
+                if (!hasCache) {
+                    tasks = []; dailyStatus = {}; dailyStatusByDate = {};
+                    renderEmptyState('無法載入任務，請檢查 GAS 設定');
+                    updateProgressAndStats();
+                }
+                showToast('更新失敗: ' + error.message, 'error');
             } finally {
                 hideLoading();
             }
@@ -406,20 +439,15 @@
                 return;
             }
 
-            // 【核心修正 2】依據「完成日期(due_date)」進行優先排序，快到的排在最上面
+            // 依據「完成日期(due_date)」進行優先排序，快到的排在最上面
             const sortedTasks = [...tasks].sort((a, b) => {
-                // 1. 若兩者都有完成日期，則比較日期 (越早到期越上面)
                 if (a.due_date && b.due_date) {
                     const timeA = new Date(a.due_date).getTime();
                     const timeB = new Date(b.due_date).getTime();
                     if (timeA !== timeB) return timeA - timeB;
                 }
-                
-                // 2. 若一個有明確日期、另一個沒有 (例如每日任務)，將有具體期限的排前面
                 if (a.due_date && !b.due_date) return -1;
                 if (!a.due_date && b.due_date) return 1;
-                
-                // 3. 如果兩者都沒有日期(皆為每日任務)，或是到期日在同一天，則依照使用者的自訂拖曳順序排序
                 return (a.order_index || 0) - (b.order_index || 0);
             });
 
@@ -592,7 +620,7 @@
             }
         }
 
-        // 拖曳排序功能 (注意：日期優先級最高，拖曳改變的 order_index 主要會影響「同一天」或「同為每日任務」的群組排序)
+        // 拖曳排序功能
         function onDragStart(e, taskId) { draggedTaskId = taskId; e.target.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', taskId); }
         function onDragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; const item = e.target.closest('.task-item'); if (item && item.dataset.taskId !== draggedTaskId) { item.classList.add('drag-over'); } }
         function onDrop(e, targetTaskId) {
@@ -733,19 +761,14 @@
         
         function closeDeleteModal() { 
             document.getElementById('deleteModal').style.display = 'none'; 
-            deletingTaskId = null; // 關閉視窗時會清空此變數
+            deletingTaskId = null;
         }
         
-        // 【核心修正 1】刪除時預先保存 ID，防止視窗關閉後 ID 遺失
         async function confirmDelete() {
             if (!deletingTaskId) return;
-            
-            // 先將 ID 儲存在區域變數，以免 closeDeleteModal 清空了 deletingTaskId
-            const targetTaskId = deletingTaskId; 
-            
+            const targetTaskId = deletingTaskId;
             showLoading('刪除任務中...');
             closeDeleteModal(); 
-            
             try {
                 const body = { action: 'delete_task', task_id: targetTaskId };
                 const response = await fetch(GAS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
