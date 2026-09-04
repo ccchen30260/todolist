@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>任務清單 · iOS 風格</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         :root {
             --ios-bg: #f2f2f7;
@@ -285,7 +286,14 @@
     </div>
 
     <script>
-        const GAS_URL = 'https://script.google.com/macros/s/AKfycbyov7f6hPRAYuTgwVPdLD7ZEZ872zNriHpXE0gMpZ6Uy4-st-7cAlCYEowKBl34GKs3jg/exec'; // ★請替換為您的 GAS Web App URL★
+        // ============================================================
+        // ★★★ 請填入你的 Supabase 專案資訊 ★★★
+        // 在 Supabase 後台 → Project Settings → API 可以找到
+        // ============================================================
+        const SUPABASE_URL = 'https://snacyzkfyiytcafpsfpq.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_e_aKEFvkYRfpacOE8Vtz4Q_Sd-dI47e';
+
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         let currentShift = 'day';
         let currentView = 'day';
@@ -365,32 +373,61 @@
         }
 
         async function loadTasks() {
-            if (!GAS_URL || GAS_URL === 'YOUR_GAS_WEB_APP_URL_HERE') {
-                showToast('請先設定 GAS_URL', 'error');
+            if (!SUPABASE_URL || SUPABASE_URL.includes('YOUR_PROJECT_REF')) {
+                showToast('請先設定 SUPABASE_URL / SUPABASE_ANON_KEY', 'error');
                 return;
             }
             showLoading('載入任務資料...');
             const today = getTodayString();
             const range = getDateRangeForView(currentView);
             try {
-                const url = `${GAS_URL}?action=get_tasks&shift=${currentShift}&view=${currentView}&date=${today}&start_date=${range.start}&end_date=${range.end}`;
-                const response = await fetch(url, { method: 'GET' });
-                if (!response.ok) throw new Error('HTTP ' + response.status);
-                const data = await response.json();
-                if (data.success) {
-                    tasks = data.tasks || [];
-                    dailyStatus = {};
-                    (data.dailyStatus || []).forEach(item => { dailyStatus[item.task_id] = item.completed; });
-                    dailyStatusByDate = data.dailyStatusByDate || {};
-                    renderTaskList();
-                    updateProgressAndStats();
+                let query = supabaseClient.from('tasks').select('*');
+                query = query.or(`shift.eq.${currentShift},shift.eq.both`);
+                if (currentView === 'day') {
+                    query = query.or(`is_daily.eq.true,due_date.eq.${today}`);
                 } else {
-                    throw new Error(data.message || '載入失敗');
+                    query = query
+                        .eq('is_daily', false)
+                        .gte('due_date', range.start)
+                        .lte('due_date', range.end);
                 }
+                const { data: taskData, error: taskError } = await query.order('order_index', { ascending: true });
+                if (taskError) throw taskError;
+
+                tasks = (taskData || []).map(t => ({
+                    id: t.id,
+                    name: t.name,
+                    shift: t.shift,
+                    is_daily: t.is_daily,
+                    start_date: t.start_date,
+                    due_date: t.due_date,
+                    order_index: t.order_index,
+                    time_range: t.time_range || '',
+                    link_path: t.link_path || ''
+                }));
+
+                const { data: statusData, error: statusError } = await supabaseClient
+                    .from('daily_status')
+                    .select('*')
+                    .gte('date', range.start)
+                    .lte('date', range.end)
+                    .or(`shift.eq.${currentShift},shift.eq.both`);
+                if (statusError) throw statusError;
+
+                dailyStatus = {};
+                dailyStatusByDate = {};
+                (statusData || []).forEach(item => {
+                    if (!dailyStatusByDate[item.date]) dailyStatusByDate[item.date] = {};
+                    dailyStatusByDate[item.date][item.task_id] = item.completed;
+                    if (item.date === today) dailyStatus[item.task_id] = item.completed;
+                });
+
+                renderTaskList();
+                updateProgressAndStats();
             } catch (error) {
                 console.error('載入失敗:', error);
                 tasks = []; dailyStatus = {}; dailyStatusByDate = {};
-                renderEmptyState('無法載入任務，請檢查 GAS 設定');
+                renderEmptyState('無法載入任務，請檢查 Supabase 設定');
                 updateProgressAndStats();
                 showToast('載入失敗: ' + error.message, 'error');
             } finally {
@@ -406,20 +443,15 @@
                 return;
             }
 
-            // 【核心修正 2】依據「完成日期(due_date)」進行優先排序，快到的排在最上面
+            // 依「完成日期(due_date)」優先排序，快到的排在最上面
             const sortedTasks = [...tasks].sort((a, b) => {
-                // 1. 若兩者都有完成日期，則比較日期 (越早到期越上面)
                 if (a.due_date && b.due_date) {
                     const timeA = new Date(a.due_date).getTime();
                     const timeB = new Date(b.due_date).getTime();
                     if (timeA !== timeB) return timeA - timeB;
                 }
-                
-                // 2. 若一個有明確日期、另一個沒有 (例如每日任務)，將有具體期限的排前面
                 if (a.due_date && !b.due_date) return -1;
                 if (!a.due_date && b.due_date) return 1;
-                
-                // 3. 如果兩者都沒有日期(皆為每日任務)，或是到期日在同一天，則依照使用者的自訂拖曳順序排序
                 return (a.order_index || 0) - (b.order_index || 0);
             });
 
@@ -557,15 +589,17 @@
             showLoading('更新狀態...');
             try {
                 const today = getTodayString();
-                const body = { action: 'toggle_task', task_id: taskId, date: today, shift: currentShift, completed: completed };
-                const response = await fetch(GAS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
-                const data = await response.json();
-                if (data.success) {
-                    dailyStatus[taskId] = completed;
-                    renderTaskList();
-                    updateProgressAndStats();
-                    showToast(completed ? '✅ 已完成' : '↩️ 已取消');
-                } else { throw new Error(data.message || '操作失敗'); }
+                const { error } = await supabaseClient
+                    .from('daily_status')
+                    .upsert(
+                        { task_id: taskId, date: today, shift: currentShift, completed: completed },
+                        { onConflict: 'task_id,date,shift' }
+                    );
+                if (error) throw error;
+                dailyStatus[taskId] = completed;
+                renderTaskList();
+                updateProgressAndStats();
+                showToast(completed ? '✅ 已完成' : '↩️ 已取消');
             } catch (error) {
                 console.error('切換失敗:', error);
                 showToast('操作失敗: ' + error.message, 'error');
@@ -579,20 +613,21 @@
             if (!confirm('確定要清除今日所有完成狀態嗎？')) return;
             showLoading('清除完成狀態...');
             try {
-                const body = { action: 'clear_today', date: getTodayString(), shift: currentShift };
-                const response = await fetch(GAS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
-                const data = await response.json();
-                if (data.success) {
-                    showToast('已清除今日狀態');
-                    loadTasks();
-                } else { throw new Error(data.message || '清除失敗'); }
+                const { error } = await supabaseClient
+                    .from('daily_status')
+                    .delete()
+                    .eq('date', getTodayString())
+                    .eq('shift', currentShift);
+                if (error) throw error;
+                showToast('已清除今日狀態');
+                loadTasks();
             } catch (error) {
                 showToast('清除失敗: ' + error.message, 'error');
                 hideLoading();
             }
         }
 
-        // 拖曳排序功能 (注意：日期優先級最高，拖曳改變的 order_index 主要會影響「同一天」或「同為每日任務」的群組排序)
+        // 拖曳排序功能
         function onDragStart(e, taskId) { draggedTaskId = taskId; e.target.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', taskId); }
         function onDragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; const item = e.target.closest('.task-item'); if (item && item.dataset.taskId !== draggedTaskId) { item.classList.add('drag-over'); } }
         function onDrop(e, targetTaskId) {
@@ -614,8 +649,10 @@
         
         async function saveOrder(orderedIds) {
             try {
-                const body = { action: 'update_order', ordered_ids: orderedIds };
-                await fetch(GAS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
+                const updates = orderedIds.map((id, idx) =>
+                    supabaseClient.from('tasks').update({ order_index: idx + 1 }).eq('id', id)
+                );
+                await Promise.all(updates);
             } catch (error) { showToast('排序保存失敗', 'error'); }
         }
 
@@ -704,19 +741,31 @@
             showLoading('儲存任務中...');
             closeModal();
             try {
-                const body = {
-                    action: editingTaskId ? 'update_task' : 'add_task',
-                    task_id: editingTaskId, name: name, shift: selectedShiftForModal, is_daily: isDailyForModal,
-                    start_date: isDailyForModal ? '' : startDate,
-                    due_date: isDailyForModal ? '' : dueDate,
+                const payload = {
+                    name: name,
+                    shift: selectedShiftForModal,
+                    is_daily: isDailyForModal,
+                    start_date: isDailyForModal ? null : startDate,
+                    due_date: isDailyForModal ? null : dueDate,
                     time_range: timeRange,
                     link_path: linkPath
                 };
-                const response = await fetch(GAS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
-                const data = await response.json();
-                if (data.success) {
-                    showToast(editingTaskId ? '✅ 已更新' : '✅ 已新增'); loadTasks();
-                } else { throw new Error(data.message || '儲存失敗'); }
+
+                let error;
+                if (editingTaskId) {
+                    ({ error } = await supabaseClient.from('tasks').update(payload).eq('id', editingTaskId));
+                } else {
+                    const { data: maxData } = await supabaseClient
+                        .from('tasks')
+                        .select('order_index')
+                        .order('order_index', { ascending: false })
+                        .limit(1);
+                    const maxOrder = (maxData && maxData[0]) ? maxData[0].order_index : 0;
+                    payload.order_index = maxOrder + 1;
+                    ({ error } = await supabaseClient.from('tasks').insert(payload));
+                }
+                if (error) throw error;
+                showToast(editingTaskId ? '✅ 已更新' : '✅ 已新增'); loadTasks();
             } catch (error) {
                 showToast('儲存失敗: ' + error.message, 'error');
                 hideLoading();
@@ -733,25 +782,19 @@
         
         function closeDeleteModal() { 
             document.getElementById('deleteModal').style.display = 'none'; 
-            deletingTaskId = null; // 關閉視窗時會清空此變數
+            deletingTaskId = null;
         }
         
-        // 【核心修正 1】刪除時預先保存 ID，防止視窗關閉後 ID 遺失
         async function confirmDelete() {
             if (!deletingTaskId) return;
-            
-            // 先將 ID 儲存在區域變數，以免 closeDeleteModal 清空了 deletingTaskId
-            const targetTaskId = deletingTaskId; 
-            
+            const targetTaskId = deletingTaskId;
             showLoading('刪除任務中...');
-            closeDeleteModal(); 
-            
+            closeDeleteModal();
             try {
-                const body = { action: 'delete_task', task_id: targetTaskId };
-                const response = await fetch(GAS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
-                const data = await response.json();
-                if (data.success) { showToast('🗑️ 已刪除'); loadTasks(); } 
-                else { throw new Error(data.message || '刪除失敗'); }
+                // daily_status 已設定 on delete cascade，會自動一併刪除相關紀錄
+                const { error } = await supabaseClient.from('tasks').delete().eq('id', targetTaskId);
+                if (error) throw error;
+                showToast('🗑️ 已刪除'); loadTasks();
             } catch (error) {
                 showToast('刪除失敗: ' + error.message, 'error');
                 hideLoading();
