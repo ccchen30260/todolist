@@ -298,7 +298,8 @@
         // ★★★ 請填入你的 Supabase 專案資訊 ★★★
         // 在 Supabase 後台 → Project Settings → API 可以找到
         // ============================================================
-        const SUPABASE_URL = 'https://snacyzkfyiytcafpsfpq.supabase.co';
+        const SUPABASE_URL = 'https://https://snacyzkfyiytcafpsfpq.supabase.co
+';
         const SUPABASE_ANON_KEY = 'sb_publishable_e_aKEFvkYRfpacOE8Vtz4Q_Sd-dI47e';
 
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -361,22 +362,65 @@
             }
         }
 
-        // 計算每日任務距離結束時間還剩幾分鐘（可能為負數，代表已逾時）
-        function getDailyRemainingMinutes(task) {
+        // 計算每日任務實際的截止時間點（Date 物件）
+        // 若開始時間 > 結束時間，代表跨夜班別（例如 20:00 ~ 08:00），
+        // 需依「現在」處於哪個階段，判斷截止時間是今天還是明天
+        function getDailyDeadlineDate(task) {
             if (!task.time_range || task.time_range === '|') return null;
             const parts = task.time_range.split('|');
-            const et = parts[1];
-            if (!et) return null;
-            const [h, m] = et.split(':').map(Number);
-            if (Number.isNaN(h) || Number.isNaN(m)) return null;
+            const stStr = parts[0];
+            const etStr = parts[1];
+            if (!etStr) return null;
+            const [eh, em] = etStr.split(':').map(Number);
+            if (Number.isNaN(eh) || Number.isNaN(em)) return null;
+
             const now = new Date();
-            const endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
-            return (endDate.getTime() - now.getTime()) / 60000;
+            const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), eh, em, 0);
+
+            if (!stStr) {
+                // 沒有開始時間，視為當天到期
+                return todayEnd;
+            }
+            const [sh, sm] = stStr.split(':').map(Number);
+            if (Number.isNaN(sh) || Number.isNaN(sm)) return todayEnd;
+
+            const startMinutes = sh * 60 + sm;
+            const endMinutes = eh * 60 + em;
+
+            if (startMinutes <= endMinutes) {
+                // 同一天內的時段（不跨夜）
+                return todayEnd;
+            }
+
+            // 跨夜時段（開始時間 > 結束時間）
+            const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), sh, sm, 0);
+            if (now.getTime() >= todayStart.getTime()) {
+                // 現在已過今天的開始時間 → 今晚開始、明天早上結束，deadline 在明天
+                const tomorrowEnd = new Date(todayEnd);
+                tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
+                return tomorrowEnd;
+            }
+            if (now.getTime() < todayEnd.getTime()) {
+                // 現在還在今天凌晨的結束時間之前 → 昨晚開始、今天早上結束，deadline 在今天
+                return todayEnd;
+            }
+            // 介於今天結束時間之後、今天開始時間之前的空檔（白天尚未上班），視為下一輪，deadline 在明天
+            const tomorrowEnd = new Date(todayEnd);
+            tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
+            return tomorrowEnd;
+        }
+
+        // 計算每日任務距離截止時間還剩幾分鐘（可能為負數，代表已逾時）
+        function getDailyRemainingMinutes(task) {
+            const deadline = getDailyDeadlineDate(task);
+            if (!deadline) return null;
+            const now = new Date();
+            return (deadline.getTime() - now.getTime()) / 60000;
         }
 
         // 依規則計算任務目前應顯示的狀態顏色 class
-        // 日任務：已過結束時間且未完成 → 粉紅色
-        // 週/月任務：依剩餘天數 → 3天=淡藍色、2天=黃色、當天(含逾期)=粉紅色
+        // 日任務：已過截止時間且未完成 → 粉紅色
+        // 週/月任務：依剩餘天數 → 3天=淡藍色、2天=黃色、剩1天或當天(含逾期)=粉紅色
         function getTaskStatusClass(task, completed) {
             if (completed) return '';
             if (task.is_daily) {
@@ -389,7 +433,7 @@
                 today.setHours(0, 0, 0, 0);
                 const due = new Date(task.due_date + 'T00:00:00');
                 const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                if (diffDays <= 0) return 'warn-pink';
+                if (diffDays <= 1) return 'warn-pink';
                 if (diffDays === 2) return 'warn-yellow';
                 if (diffDays === 3) return 'warn-lightblue';
             }
