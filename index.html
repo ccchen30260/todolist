@@ -108,6 +108,14 @@
         .task-item.dragging { opacity: 0.5; background: var(--ios-bg); }
         .task-item.drag-over { border-top: 2px solid var(--ios-blue); }
 
+        /* 到期狀態警示色 */
+        .task-item.warn-pink { background: rgba(255, 45, 85, 0.14); }
+        .task-item.warn-yellow { background: rgba(255, 204, 0, 0.20); }
+        .task-item.warn-lightblue { background: rgba(90, 200, 250, 0.16); }
+        [data-shift="night"] .task-item.warn-pink { background: rgba(255, 55, 95, 0.26); }
+        [data-shift="night"] .task-item.warn-yellow { background: rgba(255, 214, 10, 0.24); }
+        [data-shift="night"] .task-item.warn-lightblue { background: rgba(100, 210, 255, 0.22); }
+
         .task-checkbox { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--ios-light-gray); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; background: transparent; margin-right: 12px; flex-shrink: 0; -webkit-appearance: none; appearance: none; }
         .task-checkbox:checked { background: var(--ios-green); border-color: var(--ios-green); }
         .task-checkbox:checked::after { content: '✓'; color: #fff; font-size: 14px; font-weight: 700; }
@@ -353,6 +361,41 @@
             }
         }
 
+        // 計算每日任務距離結束時間還剩幾分鐘（可能為負數，代表已逾時）
+        function getDailyRemainingMinutes(task) {
+            if (!task.time_range || task.time_range === '|') return null;
+            const parts = task.time_range.split('|');
+            const et = parts[1];
+            if (!et) return null;
+            const [h, m] = et.split(':').map(Number);
+            if (Number.isNaN(h) || Number.isNaN(m)) return null;
+            const now = new Date();
+            const endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
+            return (endDate.getTime() - now.getTime()) / 60000;
+        }
+
+        // 依規則計算任務目前應顯示的狀態顏色 class
+        // 日任務：已過結束時間且未完成 → 粉紅色
+        // 週/月任務：依剩餘天數 → 3天=淡藍色、2天=黃色、當天(含逾期)=粉紅色
+        function getTaskStatusClass(task, completed) {
+            if (completed) return '';
+            if (task.is_daily) {
+                const remaining = getDailyRemainingMinutes(task);
+                if (remaining !== null && remaining <= 0) return 'warn-pink';
+                return '';
+            }
+            if (task.due_date) {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const due = new Date(task.due_date + 'T00:00:00');
+                const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                if (diffDays <= 0) return 'warn-pink';
+                if (diffDays === 2) return 'warn-yellow';
+                if (diffDays === 3) return 'warn-lightblue';
+            }
+            return '';
+        }
+
         function switchShift(shift) {
             if (currentShift === shift) return;
             currentShift = shift;
@@ -443,7 +486,8 @@
                 return;
             }
 
-            // 依「完成日期(due_date)」優先排序，快到的排在最上面
+            // 依「完成日期(due_date)」優先排序，快到的排在最上面；
+            // 若雙方都沒有到期日（例如每日任務），改依「距離結束時間剩餘分鐘數」排序，剩越少排越上面
             const sortedTasks = [...tasks].sort((a, b) => {
                 if (a.due_date && b.due_date) {
                     const timeA = new Date(a.due_date).getTime();
@@ -452,11 +496,20 @@
                 }
                 if (a.due_date && !b.due_date) return -1;
                 if (!a.due_date && b.due_date) return 1;
+
+                if (!a.due_date && !b.due_date) {
+                    const remA = getDailyRemainingMinutes(a);
+                    const remB = getDailyRemainingMinutes(b);
+                    if (remA !== null && remB !== null && remA !== remB) return remA - remB;
+                    if (remA !== null && remB === null) return -1;
+                    if (remA === null && remB !== null) return 1;
+                }
                 return (a.order_index || 0) - (b.order_index || 0);
             });
 
             list.innerHTML = sortedTasks.map(task => {
                 const completed = dailyStatus[task.id] || false;
+                const statusClass = getTaskStatusClass(task, completed);
                 const badges = [];
                 badges.push(`<span class="badge">${getShiftLabel(task.shift)}</span>`);
                 
@@ -485,7 +538,7 @@
                 }
 
                 return `
-                    <li class="task-item ${completed ? 'completed-task' : ''}" 
+                    <li class="task-item ${completed ? 'completed-task' : ''} ${statusClass}" 
                         draggable="true" 
                         data-task-id="${task.id}"
                         ondragstart="onDragStart(event, '${task.id}')"
