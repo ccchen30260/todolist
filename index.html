@@ -80,6 +80,17 @@
         .view-btn { flex: 1; padding: 8px 0; text-align: center; font-size: 14px; font-weight: 600; background: var(--ios-card); border-radius: 8px; color: var(--ios-gray); cursor: pointer; box-shadow: var(--ios-shadow); transition: all 0.2s; user-select: none; }
         .view-btn.active { background: var(--ios-blue); color: #fff; box-shadow: 0 2px 8px rgba(0,122,255,0.3); }
 
+        /* 搜尋列 */
+        .search-bar { position: relative; margin-bottom: 16px; }
+        .search-bar input { width: 100%; padding: 10px 36px 10px 14px; background: var(--ios-card); border: none; border-radius: 10px; font-size: 15px; color: var(--ios-text); outline: none; box-shadow: var(--ios-shadow); transition: box-shadow 0.2s; }
+        .search-bar input:focus { box-shadow: 0 0 0 2px var(--ios-blue); }
+        .search-bar .search-clear { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--ios-gray); font-size: 18px; cursor: pointer; padding: 4px 6px; display: none; }
+        .search-bar .search-clear.show { display: block; }
+
+        /* 導航按鈕（歷史紀錄） */
+        .nav-btn { width: 40px; height: 40px; border-radius: 50%; background: var(--ios-card); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; box-shadow: var(--ios-shadow); transition: transform 0.1s; }
+        .nav-btn:active { transform: scale(0.9); }
+
         /* 進度卡片 */
         .progress-card { background: var(--ios-card); border-radius: var(--ios-radius); padding: 18px 20px; box-shadow: var(--ios-shadow); margin-bottom: 16px; transition: all var(--transition); }
         .progress-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
@@ -186,6 +197,7 @@
                 <h1>任務清單</h1>
                 <div class="date-display" id="dateDisplay"></div>
             </div>
+            <button class="nav-btn" onclick="openHistoryModal()" title="未完成紀錄">🕘</button>
         </div>
         <div class="segmented-control">
             <div class="segment-btn active" id="btnDay" onclick="switchShift('day')">☀️ 日班</div>
@@ -195,6 +207,10 @@
             <div class="view-btn active" data-view="day" onclick="switchView('day')">日</div>
             <div class="view-btn" data-view="week" onclick="switchView('week')">週</div>
             <div class="view-btn" data-view="month" onclick="switchView('month')">月</div>
+        </div>
+        <div class="search-bar">
+            <input type="text" id="searchInput" placeholder="🔍 搜尋任務名稱..." oninput="onSearchInput()">
+            <button class="search-clear" id="searchClearBtn" onclick="clearSearch()">✕</button>
         </div>
         <div class="progress-card">
             <div class="progress-header">
@@ -293,6 +309,18 @@
         </div>
     </div>
 
+    <!-- 未完成紀錄彈窗 -->
+    <div id="historyModal" class="modal-overlay" style="display:none;">
+        <div class="modal">
+            <h3>未完成紀錄</h3>
+            <ul class="task-list" id="historyList" style="max-height:50vh; margin-bottom:4px;"></ul>
+            <div class="modal-actions">
+                <button class="modal-btn cancel" onclick="closeHistoryModal()">關閉</button>
+                <button class="modal-btn save" style="background:var(--ios-red);" onclick="clearAllHistory()">清空紀錄</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // ============================================================
         // ★★★ 請填入你的 Supabase 專案資訊 ★★★
@@ -313,6 +341,7 @@
         let selectedShiftForModal = 'day';
         let isDailyForModal = false;
         let draggedTaskId = null;
+        let searchQuery = '';
 
         document.addEventListener('DOMContentLoaded', () => {
             updateDateDisplay();
@@ -439,6 +468,55 @@
             return '';
         }
 
+        // 模糊搜尋比對：完全包含直接算符合；否則允許 query 的字元依序（可跳過中間字元）出現在 text 中即算符合
+        function fuzzyMatch(query, text) {
+            if (!query) return true;
+            const q = query.toLowerCase().trim();
+            if (!q) return true;
+            const t = (text || '').toLowerCase();
+            if (t.includes(q)) return true;
+            let qi = 0;
+            for (let i = 0; i < t.length && qi < q.length; i++) {
+                if (t[i] === q[qi]) qi++;
+            }
+            return qi === q.length;
+        }
+
+        function onSearchInput() {
+            searchQuery = document.getElementById('searchInput').value;
+            document.getElementById('searchClearBtn').classList.toggle('show', searchQuery.length > 0);
+            renderTaskList();
+        }
+
+        function clearSearch() {
+            searchQuery = '';
+            document.getElementById('searchInput').value = '';
+            document.getElementById('searchClearBtn').classList.remove('show');
+            renderTaskList();
+        }
+
+        // 記錄一筆逾時未完成的任務到 missed_log（同一任務同一天同一班別只會留一筆，重複執行不會產生多筆）
+        async function logMissedTask(task) {
+            try {
+                const logDate = task.is_daily ? getTodayString() : task.due_date;
+                if (!logDate) return;
+                await supabaseClient.from('missed_log').upsert({
+                    task_id: task.id,
+                    task_name: task.name,
+                    shift: task.shift,
+                    log_date: logDate
+                }, { onConflict: 'task_id,log_date,shift' });
+            } catch (err) {
+                console.error('記錄未完成任務失敗:', err);
+            }
+        }
+
+        // 掃描目前載入的任務，把已顯示為「逾時未完成(粉紅色)」的任務寫入未完成紀錄
+        function logMissedTasksIfNeeded() {
+            const missed = tasks.filter(t => getTaskStatusClass(t, dailyStatus[t.id] || false) === 'warn-pink');
+            missed.forEach(t => logMissedTask(t));
+        }
+
         function switchShift(shift) {
             if (currentShift === shift) return;
             currentShift = shift;
@@ -510,6 +588,7 @@
 
                 renderTaskList();
                 updateProgressAndStats();
+                logMissedTasksIfNeeded();
             } catch (error) {
                 console.error('載入失敗:', error);
                 tasks = []; dailyStatus = {}; dailyStatusByDate = {};
@@ -523,15 +602,18 @@
 
         function renderTaskList() {
             const list = document.getElementById('taskList');
-            if (!tasks || tasks.length === 0) {
-                renderEmptyState('暫無任務，點擊下方按鈕新增');
+            const query = (searchQuery || '').trim();
+            const visibleTasks = query ? tasks.filter(t => fuzzyMatch(query, t.name)) : tasks;
+
+            if (!visibleTasks || visibleTasks.length === 0) {
+                renderEmptyState(query ? '🔍 找不到符合的任務' : '暫無任務，點擊下方按鈕新增');
                 document.getElementById('taskCountBadge').textContent = '0';
                 return;
             }
 
             // 依「完成日期(due_date)」優先排序，快到的排在最上面；
             // 若雙方都沒有到期日（例如每日任務），改依「距離結束時間剩餘分鐘數」排序，剩越少排越上面
-            const sortedTasks = [...tasks].sort((a, b) => {
+            const sortedTasks = [...visibleTasks].sort((a, b) => {
                 if (a.due_date && b.due_date) {
                     const timeA = new Date(a.due_date).getTime();
                     const timeB = new Date(b.due_date).getTime();
@@ -602,7 +684,7 @@
                     </li>
                 `;
             }).join('');
-            document.getElementById('taskCountBadge').textContent = tasks.length;
+            document.getElementById('taskCountBadge').textContent = sortedTasks.length;
         }
 
         function handlePathClick(el, e) {
@@ -904,12 +986,81 @@
             clearTimeout(toast._timeout); toast._timeout = setTimeout(() => toast.classList.remove('show'), 2500);
         }
 
+        function openHistoryModal() {
+            document.getElementById('historyModal').style.display = 'flex';
+            loadMissedHistory();
+        }
+
+        function closeHistoryModal() {
+            document.getElementById('historyModal').style.display = 'none';
+        }
+
+        async function loadMissedHistory() {
+            const listEl = document.getElementById('historyList');
+            listEl.innerHTML = '<div class="empty-state"><p>載入中...</p></div>';
+            try {
+                const { data, error } = await supabaseClient
+                    .from('missed_log')
+                    .select('*')
+                    .order('log_date', { ascending: false })
+                    .order('logged_at', { ascending: false })
+                    .limit(200);
+                if (error) throw error;
+
+                if (!data || data.length === 0) {
+                    listEl.innerHTML = '<div class="empty-state"><div class="icon">🎉</div><p>目前沒有未完成紀錄</p></div>';
+                    return;
+                }
+
+                listEl.innerHTML = data.map(row => `
+                    <li class="task-item">
+                        <div class="task-info">
+                            <div class="task-name">${escapeHtml(row.task_name)}</div>
+                            <div class="task-badges">
+                                <span class="badge">${getShiftLabel(row.shift)}</span>
+                                <span class="badge">📅 ${row.log_date}</span>
+                            </div>
+                        </div>
+                        <div class="task-actions">
+                            <button class="action-btn delete" onclick="deleteHistoryEntry(${row.id})" title="刪除">🗑️</button>
+                        </div>
+                    </li>
+                `).join('');
+            } catch (error) {
+                listEl.innerHTML = '<div class="empty-state"><p>載入失敗</p></div>';
+                showToast('載入紀錄失敗: ' + error.message, 'error');
+            }
+        }
+
+        async function deleteHistoryEntry(id) {
+            try {
+                const { error } = await supabaseClient.from('missed_log').delete().eq('id', id);
+                if (error) throw error;
+                loadMissedHistory();
+            } catch (error) {
+                showToast('刪除失敗: ' + error.message, 'error');
+            }
+        }
+
+        async function clearAllHistory() {
+            if (!confirm('確定要清空所有未完成紀錄嗎？')) return;
+            try {
+                const { error } = await supabaseClient.from('missed_log').delete().neq('id', 0);
+                if (error) throw error;
+                showToast('已清空紀錄');
+                loadMissedHistory();
+            } catch (error) {
+                showToast('清空失敗: ' + error.message, 'error');
+            }
+        }
+
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') { closeModal(); closeDeleteModal(); }
+            if (e.key === 'Escape') { closeModal(); closeDeleteModal(); closeHistoryModal(); }
             if (e.key === 'Enter' && document.getElementById('taskModal').style.display === 'flex') { saveTask(); }
         });
         document.getElementById('taskModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeModal(); });
         document.getElementById('deleteModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeDeleteModal(); });
+        document.getElementById('historyModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeHistoryModal(); });
     </script>
 </body>
 </html>
