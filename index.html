@@ -99,7 +99,6 @@
         .note-card { border-radius: 10px; padding: 10px; min-height: 120px; display: flex; flex-direction: column; box-shadow: 0 3px 8px rgba(0,0,0,0.15); }
         .note-card textarea { flex: 1; background: transparent; border: none; resize: none; font-size: 14px; font-family: inherit; color: #3a3a3a; outline: none; line-height: 1.4; }
         .note-card textarea::placeholder { color: rgba(0,0,0,0.35); }
-        .note-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
         .note-color-dots { display: flex; gap: 5px; }
         .note-color-dot { width: 15px; height: 15px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; }
         .note-color-dot.selected { border-color: rgba(0,0,0,0.5); }
@@ -111,17 +110,25 @@
             .notes-float-layer { display: block; }
         }
         .note-float {
-            position: fixed; width: 180px; min-height: 130px; border-radius: 8px; padding: 10px;
+            position: fixed; border-radius: 8px; padding: 10px;
             box-shadow: 0 6px 16px rgba(0,0,0,0.25); pointer-events: auto;
             display: flex; flex-direction: column; transform: rotate(-1.2deg);
+            overflow: hidden;
         }
         .note-float:nth-child(even) { transform: rotate(1.2deg); }
         .note-float .note-drag-handle {
             height: 14px; cursor: grab; margin: -10px -10px 6px -10px; border-radius: 8px 8px 0 0;
-            background: rgba(0,0,0,0.08);
+            background: rgba(0,0,0,0.08); flex-shrink: 0;
         }
         .note-float .note-drag-handle:active { cursor: grabbing; }
-        .note-float textarea { flex: 1; background: transparent; border: none; resize: none; font-size: 13px; font-family: inherit; color: #3a3a3a; outline: none; line-height: 1.4; }
+        .note-float textarea { flex: 1; min-height: 0; background: transparent; border: none; resize: none; font-family: inherit; color: #3a3a3a; outline: none; line-height: 1.4; }
+        .note-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; flex-wrap: wrap; gap: 4px; flex-shrink: 0; }
+        .note-font-controls { display: flex; gap: 4px; }
+        .note-font-btn { border: none; background: rgba(0,0,0,0.08); border-radius: 6px; width: 22px; height: 20px; font-size: 10px; font-weight: 700; cursor: pointer; color: #3a3a3a; }
+        .note-resize-handle {
+            position: absolute; right: 3px; bottom: 3px; width: 14px; height: 14px; cursor: nwse-resize;
+            background: linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.3) 50%); border-radius: 0 0 4px 0;
+        }
 
         /* 進度卡片 */
         .progress-card { background: var(--ios-card); border-radius: var(--ios-radius); padding: 18px 20px; box-shadow: var(--ios-shadow); margin-bottom: 16px; transition: all var(--transition); }
@@ -402,6 +409,8 @@
         const REMINDER_CHECK_INTERVAL_MS = 30000; // 每 30 秒檢查一次
         let notificationsEnabled = localStorage.getItem('notificationsEnabled') === 'true';
         let notifiedKeys = new Set(JSON.parse(localStorage.getItem('notifiedKeys') || '[]'));
+        let overdueLastFired = {}; // 記憶體內即可：重新整理頁面後，只要任務仍逾時未完成，下一次檢查會立刻再提醒一次
+        const OVERDUE_REPEAT_INTERVAL_MS = 5 * 60 * 1000; // 逾時後，只要還沒完成，每 5 分鐘重複提醒一次
 
         document.addEventListener('DOMContentLoaded', () => {
             updateDateDisplay();
@@ -706,11 +715,13 @@
                     saveNotifiedKeys();
                 }
 
-                const overdueKey = `overdue-${task.id}-${cycleKey}`;
-                if (diffMinutes <= 0 && !notifiedKeys.has(overdueKey)) {
-                    fireReminder(`🔴 已逾時：${task.name}`, '已超過截止時間，記得處理');
-                    notifiedKeys.add(overdueKey);
-                    saveNotifiedKeys();
+                const overdueKey = `${task.id}-${cycleKey}`;
+                if (diffMinutes <= 0) {
+                    const lastFired = overdueLastFired[overdueKey] || 0;
+                    if (now.getTime() - lastFired >= OVERDUE_REPEAT_INTERVAL_MS) {
+                        fireReminder(`🔴 已逾時：${task.name}`, '已超過截止時間，將持續提醒直到完成或關閉提醒');
+                        overdueLastFired[overdueKey] = now.getTime();
+                    }
                 }
             });
         }
@@ -1298,23 +1309,36 @@
             `).join('');
         }
 
-        // 電腦版：渲染貼在畫面左右邊界的便利貼（固定定位，隨時可見）
+        // 電腦版：渲染貼在畫面上的便利貼（可自由拖曳、可調整大小）
         function renderFloatingNotes() {
             const layer = document.getElementById('notesFloatLayer');
             if (!layer) return;
             layer.innerHTML = notes.map((note, idx) => {
-                const top = (note.pos_top !== null && note.pos_top !== undefined) ? note.pos_top : (90 + idx * 165);
-                const sidePos = note.side === 'right' ? 'right:24px; left:auto;' : 'left:24px; right:auto;';
+                const width = note.width || 180;
+                const height = note.height || 130;
+                const fontSize = note.font_size || 13;
+                const top = (note.pos_top !== null && note.pos_top !== undefined) ? note.pos_top : (90 + idx * (height + 20));
+                let left;
+                if (note.pos_left !== null && note.pos_left !== undefined) {
+                    left = note.pos_left;
+                } else {
+                    left = note.side === 'right' ? Math.max(0, window.innerWidth - width - 24) : 24;
+                }
                 return `
-                    <div class="note-float" data-note-id="${note.id}" style="${sidePos} top:${top}px; background:${note.color || NOTE_COLORS[0]};">
-                        <div class="note-drag-handle" onmousedown="startDragNote(event, '${note.id}')"></div>
-                        <textarea placeholder="寫點什麼..." oninput="onNoteInput('${note.id}', this.value)">${escapeHtml(note.content || '')}</textarea>
+                    <div class="note-float" data-note-id="${note.id}" style="left:${left}px; top:${top}px; width:${width}px; height:${height}px; background:${note.color || NOTE_COLORS[0]};">
+                        <div class="note-drag-handle" onmousedown="startDragNote(event, '${note.id}')" title="拖曳移動"></div>
+                        <textarea style="font-size:${fontSize}px;" placeholder="寫點什麼..." oninput="onNoteInput('${note.id}', this.value)">${escapeHtml(note.content || '')}</textarea>
                         <div class="note-footer">
+                            <div class="note-font-controls">
+                                <button class="note-font-btn" onclick="changeNoteFontSize('${note.id}', -1)" title="縮小字體">A-</button>
+                                <button class="note-font-btn" onclick="changeNoteFontSize('${note.id}', 1)" title="放大字體">A+</button>
+                            </div>
                             <div class="note-color-dots">
                                 ${NOTE_COLORS.map(c => `<span class="note-color-dot ${c === note.color ? 'selected' : ''}" style="background:${c};" onclick="changeNoteColor('${note.id}', '${c}')"></span>`).join('')}
                             </div>
                             <button class="note-delete-btn" onclick="deleteNote('${note.id}')" title="刪除">🗑️</button>
                         </div>
+                        <div class="note-resize-handle" onmousedown="startResizeNote(event, '${note.id}')" title="拖曳調整大小"></div>
                     </div>
                 `;
             }).join('');
@@ -1325,48 +1349,104 @@
             renderFloatingNotes();
         }
 
-        // 拖曳浮動便利貼：可上下移動，拖過螢幕中線會自動吸附到左邊或右邊
+        // 拖曳浮動便利貼：可自由移動到畫面任何位置（包含靠近主畫面）
         let draggingNote = null;
         function startDragNote(e, id) {
             e.preventDefault();
             const elem = document.querySelector(`.note-float[data-note-id="${id}"]`);
             if (!elem) return;
             const rect = elem.getBoundingClientRect();
-            draggingNote = { id, elem, offsetY: e.clientY - rect.top };
+            draggingNote = { id, elem, offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top };
             document.addEventListener('mousemove', onDragNoteMove);
             document.addEventListener('mouseup', onDragNoteEnd);
         }
 
         function onDragNoteMove(e) {
             if (!draggingNote) return;
-            const top = Math.max(8, e.clientY - draggingNote.offsetY);
+            const rect = draggingNote.elem.getBoundingClientRect();
+            let left = e.clientX - draggingNote.offsetX;
+            let top = e.clientY - draggingNote.offsetY;
+            left = Math.max(0, Math.min(left, window.innerWidth - rect.width));
+            top = Math.max(0, Math.min(top, window.innerHeight - rect.height));
+            draggingNote.elem.style.left = left + 'px';
             draggingNote.elem.style.top = top + 'px';
-            const isRightSide = e.clientX > window.innerWidth / 2;
-            if (isRightSide) {
-                draggingNote.elem.style.right = '24px';
-                draggingNote.elem.style.left = 'auto';
-            } else {
-                draggingNote.elem.style.left = '24px';
-                draggingNote.elem.style.right = 'auto';
-            }
+            draggingNote.pendingLeft = Math.round(left);
             draggingNote.pendingTop = Math.round(top);
-            draggingNote.pendingSide = isRightSide ? 'right' : 'left';
         }
 
         async function onDragNoteEnd() {
             document.removeEventListener('mousemove', onDragNoteMove);
             document.removeEventListener('mouseup', onDragNoteEnd);
             if (!draggingNote) return;
-            const { id, pendingTop, pendingSide } = draggingNote;
+            const { id, pendingLeft, pendingTop } = draggingNote;
             draggingNote = null;
-            if (pendingTop === undefined) return;
+            if (pendingLeft === undefined) return;
             try {
-                const { error } = await supabaseClient.from('notes').update({ pos_top: pendingTop, side: pendingSide }).eq('id', id);
+                const { error } = await supabaseClient.from('notes').update({ pos_left: pendingLeft, pos_top: pendingTop }).eq('id', id);
                 if (error) throw error;
                 const note = notes.find(n => n.id === id);
-                if (note) { note.pos_top = pendingTop; note.side = pendingSide; }
+                if (note) { note.pos_left = pendingLeft; note.pos_top = pendingTop; }
             } catch (err) {
                 console.error('儲存便利貼位置失敗:', err);
+            }
+        }
+
+        // 調整浮動便利貼大小
+        let resizingNote = null;
+        function startResizeNote(e, id) {
+            e.preventDefault();
+            e.stopPropagation();
+            const elem = document.querySelector(`.note-float[data-note-id="${id}"]`);
+            if (!elem) return;
+            const rect = elem.getBoundingClientRect();
+            resizingNote = { id, elem, startX: e.clientX, startY: e.clientY, startWidth: rect.width, startHeight: rect.height };
+            document.addEventListener('mousemove', onResizeNoteMove);
+            document.addEventListener('mouseup', onResizeNoteEnd);
+        }
+
+        function onResizeNoteMove(e) {
+            if (!resizingNote) return;
+            let width = resizingNote.startWidth + (e.clientX - resizingNote.startX);
+            let height = resizingNote.startHeight + (e.clientY - resizingNote.startY);
+            width = Math.max(140, Math.min(width, 420));
+            height = Math.max(110, Math.min(height, 420));
+            resizingNote.elem.style.width = width + 'px';
+            resizingNote.elem.style.height = height + 'px';
+            resizingNote.pendingWidth = Math.round(width);
+            resizingNote.pendingHeight = Math.round(height);
+        }
+
+        async function onResizeNoteEnd() {
+            document.removeEventListener('mousemove', onResizeNoteMove);
+            document.removeEventListener('mouseup', onResizeNoteEnd);
+            if (!resizingNote) return;
+            const { id, pendingWidth, pendingHeight } = resizingNote;
+            resizingNote = null;
+            if (pendingWidth === undefined) return;
+            try {
+                const { error } = await supabaseClient.from('notes').update({ width: pendingWidth, height: pendingHeight }).eq('id', id);
+                if (error) throw error;
+                const note = notes.find(n => n.id === id);
+                if (note) { note.width = pendingWidth; note.height = pendingHeight; }
+            } catch (err) {
+                console.error('儲存便利貼大小失敗:', err);
+            }
+        }
+
+        // 調整字體大小（直接改該便利貼的 textarea，不整體重繪，避免打字焦點被中斷）
+        async function changeNoteFontSize(id, delta) {
+            const note = notes.find(n => n.id === id);
+            if (!note) return;
+            const current = note.font_size || 13;
+            const next = Math.max(10, Math.min(28, current + delta * 2));
+            try {
+                const { error } = await supabaseClient.from('notes').update({ font_size: next }).eq('id', id);
+                if (error) throw error;
+                note.font_size = next;
+                const textarea = document.querySelector(`.note-float[data-note-id="${id}"] textarea`);
+                if (textarea) textarea.style.fontSize = next + 'px';
+            } catch (error) {
+                showToast('調整字體失敗: ' + error.message, 'error');
             }
         }
 
